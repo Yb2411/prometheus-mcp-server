@@ -160,13 +160,78 @@ async def test_get_metric_metadata(mock_make_request):
 
         payload = result.content[0].text
         json_data = json.loads(payload)
-        print(json_data)
 
         # Verify
-        mock_make_request.assert_called_once_with("metadata?metric=up", params=None)
+        mock_make_request.assert_called_once_with("metadata", params={"metric": "up"})
         assert len(json_data) == 1
         assert json_data[0]["metric"] == "up"
         assert json_data[0]["type"] == "gauge"
+
+@pytest.mark.asyncio
+async def test_get_metric_metadata_bulk(mock_make_request):
+    """Test get_metric_metadata bulk mode without metric filter."""
+    mock_make_request.return_value = {
+        "up": [{"type": "gauge", "help": "Target availability", "unit": ""}],
+        "tls_expiry_seconds": [{"type": "gauge", "help": "Seconds until certificate expiry", "unit": "seconds"}],
+        "process_cpu_seconds_total": [{"type": "counter", "help": "Total CPU seconds", "unit": "seconds"}],
+    }
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_metric_metadata", {})
+
+        payload = result.content[0].text
+        json_data = json.loads(payload)
+
+        mock_make_request.assert_called_once_with("metadata", params=None)
+        assert json_data["total_count"] == 3
+        assert json_data["returned_count"] == 3
+        assert json_data["offset"] == 0
+        assert json_data["has_more"] is False
+        assert "tls_expiry_seconds" in json_data["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_get_metric_metadata_filter_matches_description(mock_make_request):
+    """Test get_metric_metadata filter_pattern on metadata descriptions."""
+    mock_make_request.return_value = {
+        "tls_expiry_seconds": [{"type": "gauge", "help": "Seconds until certificate expiry", "unit": "seconds"}],
+        "process_cpu_seconds_total": [{"type": "counter", "help": "Total CPU seconds", "unit": "seconds"}],
+    }
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_metric_metadata", {"filter_pattern": "certificate"})
+
+        payload = result.content[0].text
+        json_data = json.loads(payload)
+
+        mock_make_request.assert_called_once_with("metadata", params=None)
+        assert json_data["total_count"] == 1
+        assert "tls_expiry_seconds" in json_data["metadata"]
+        assert "process_cpu_seconds_total" not in json_data["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_get_metric_metadata_bulk_pagination(mock_make_request):
+    """Test get_metric_metadata bulk pagination."""
+    mock_make_request.return_value = {
+        "metric_a": [{"type": "gauge", "help": "A", "unit": ""}],
+        "metric_b": [{"type": "gauge", "help": "B", "unit": ""}],
+        "metric_c": [{"type": "gauge", "help": "C", "unit": ""}],
+    }
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_metric_metadata", {"limit": 1, "offset": 1})
+
+        payload = result.content[0].text
+        json_data = json.loads(payload)
+
+        mock_make_request.assert_called_once_with("metadata", params=None)
+        assert json_data["total_count"] == 3
+        assert json_data["returned_count"] == 1
+        assert json_data["offset"] == 1
+        assert json_data["has_more"] is True
+        assert list(json_data["metadata"].keys()) == ["metric_b"]
+
 
 @pytest.mark.asyncio
 async def test_get_targets(mock_make_request):
